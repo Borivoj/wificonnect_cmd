@@ -1,0 +1,192 @@
+#!/bin/bash
+#
+#  wifi_connect
+#
+#  Version: 0.2.1
+#
+#  Copyright 2014 Borivoj Vlk <borivoj.vlk@gmail.com>
+#
+#  This program is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software
+#  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+#  MA 02110-1301, USA.
+#
+#
+
+#dav parametry a to sit a heslo
+savepass(){
+	if ! [ -f "saved_pass" ]; then
+		echo -e "$1;$2" >> saved_pass
+		return 0
+	else
+		heslo23=`cat saved_pass | sed -n  "s/^ *$sit *;*//p"`
+		case "$heslo23" in
+		"")
+			echo -e "$1;$2" >> saved_pass
+			return 0
+			;;
+		"$2")
+			return 0
+			;;
+		*)
+			echo -e "\n Different password for this network already stored. \n Do you want to change it?(y/n)"
+			read answer22
+			case "$answer22" in
+			"y")
+				sed -i "s/ *$heslo23/$2/ " saved_pass
+				return 0
+				;;
+			"n")
+				return 1
+				;;
+			"Y")
+				sed -i "s/ *$heslo23/$2/ " saved_pass
+				return 0
+				;;
+			"N")
+				return 1
+				;;
+			*)
+				exit 1
+				;;
+			esac
+			;;
+		esac
+	fi
+}
+
+#Jeden paramet a to jmeno site
+searchpass(){
+	if ! [ -f "saved_pass" ]; then
+		return 1
+	fi
+	heslo31=`cat saved_pass | sed -n  "s/^ *$1 *;*//p"`
+	echo "$heslo31"
+	return 0
+}
+
+
+wpasuppl(){
+	if [ -f "wpa_supplicant.conf" ]; then
+		rm wpa_supplicant.conf
+	fi
+	echo -e "network={" >> wpa_supplicant.conf
+	echo -e "\t ssid=\"$1\"" >> wpa_supplicant.conf
+	echo -e "\t key_mgmt=WPA-PSK" >> wpa_supplicant.conf
+	echo -e "\t psk=\"$2\"" >> wpa_supplicant.conf
+	echo -e "}" >> wpa_supplicant.conf
+}
+
+checkparams(){
+	if [ `expr length "$2"` -le  7 ] && [ `expr length "$2"` -ne  0 ]; then
+		echo -e "\nPassword must be at least 8 characters long."
+		exit 1
+	fi
+	[[ `id -u` -eq 0 ]] || { echo "Must be root to run script"; exit 1; }
+}
+insertdrive(){
+modprobe iwl3945 iwl4965
+readlink /sys/class/net/wlan0/device/driver
+}
+#Musi se volat se dvama prametrama, sit a heslo
+
+
+
+
+
+echo -e "Wifi connection cmd line tool v0.2.1\n Borivoj Vlk 2014\n For help, run with --help"
+
+case "$1" in
+"--help")
+	echo -e "\nFirst obligatory parameter is name of the network, second parameter is very secret passphrase.\nProgram will automatically store entered passwords.\nLater, password can be load automatically.\nBeware! All passwords are sotred in plain text.\nScript runs in a loop until dhclient finishes succesfully, or is terminated by keypress.\nRunning the program without any parameters will scan for wirelles networks \nin your range."
+	echo -e "Example: \$./wifi_connect MyNetwork VerySecretPassphrase"
+	exit 0
+	;;
+"")
+	echo -e "\nScanning for networks in your range..."
+	iwlist wlan0 scan | sed -n s/ESSID//p
+	exit 0
+	;;
+*)
+	;;
+esac
+
+
+checkparams
+insertdrive
+#Rady se poresi hesla a tvorba souboru
+sit="$1"
+heslo="$2"
+if ! [ "$heslo" = "" ]; then
+	if ! savepass "$sit" "$heslo"; then
+		echo -e "\nDo you want use stored password?(y/n)"
+		read answer34
+		case "$answer34" in
+		"y")
+			heslo=`searchpass "$sit"`
+			;;
+		"n")
+			;;
+		"Y")
+			heslo=`searchpass "$sit"`
+			;;
+		"N")
+			;;
+		*)
+			exit 1
+			;;
+		esac
+
+	fi
+	wpasuppl "$sit" "$heslo"
+else
+	if heslo=`searchpass "$sit"` ; then
+		wpasuppl "$sit" "$heslo"
+	fi
+fi
+
+a234=0
+
+#if [ -t 0 ]; then stty -echo -icanon time 0 min 0; fi
+
+#keypress=''
+#[ "x$keypress" = "x" ] &&
+while [ $a234 -eq 0 ]; do
+	echo -e "\nWill try to connect to \"$1\""
+	echo "Please wait..."
+	iwconfig wlan0 essid "$1"
+	sleep 2
+	if ! [ "$heslo" == "" ]; then
+		wpa_supplicant -Dwext -iwlan0 -cwpa_supplicant.conf & # TAdy poladit to co vypisuje WPA-Supplicant a nejak to cele vylepsit...
+	fi
+	sleep 10
+	dhclient -1 wlan0
+	if [ $? -eq 2 ]; then
+		echo -e "\nNOT Connected, printing log: \n"
+		a234=0
+		tail /var/log/messages -n5
+		echo -e "\nDHCP Client log: \nNo DHCPOFFERS received. \nUnable to obtain a lease on first try.  Exiting."
+	else
+		a234=1
+		echo -e "\nConnected!"
+	fi
+done
+
+
+
+if ! [ $a234 -eq 1 ]; then
+	echo -e "\nTerminated by keypress. Not connectted."
+	exit 0
+fi
+
+exit 0
